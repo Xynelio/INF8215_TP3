@@ -1,51 +1,49 @@
 """
 Team:
-La bonne Vinasse
-
+<<<<< TEAM NAME >>>>>
 Authors:
-Eloi DUSSY LACHAUD - 2098721
-Alexandre VERDET - 2164847
+# VERDET Alexandre - 2164847
+# DUSSY LACHAUD Eloi - 2098721
 """
 
 from wine_testers import WineTester
-import numpy as np
+import pandas as pd
+from sklearn.ensemble import RandomForestClassifier
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
-from sklearn.model_selection import train_test_split, GridSearchCV, cross_val_score
-from sklearn.feature_selection import SelectKBest, chi2
-from sklearn import svm
-
-
-def preprocess(X_train, y_train):
-    features = []
-    labels = []
-    for line in X_train:
-        if line[1] == "white":
-            line[1] = 0
-        elif line[1] == "red":
-            line[1] = 1
-        features.append(list(map(float, line[1:])))
-    for line in y_train:
-        labels.append(line[1])
-    features = np.array(features)
-
-    # features = SelectKBest(chi2, k=10).fit_transform(features, labels)
-
-    # Manual scaling
-    # for i in range(np.shape(features)[1]):
-    #     min_val = np.min(features[:, i])
-    #     max_val = np.max(features[:, i])
-    #     features[:, i] = (features[:, i] - min_val) / (max_val - min_val)
-
-    return features, labels
 
 
 class MyWineTester(WineTester):
     def __init__(self):
-        parameters = {'kernel': ('linear', 'rbf'), 'C': [1, 10], 'gamma': [0.5, 2]}
-        self.clf = make_pipeline(StandardScaler(), svm.SVC(C=1.3, kernel="rbf", gamma=0.65))
-        # self.clf = make_pipeline(StandardScaler(), GridSearchCV(svm.SVC(), parameters))
-        print(self.clf)
+        # TODO: initialiser votre modèle ici:
+        self.predictor = None
+        self.column_names = ["id", "color", "fixed acidity", "volatile acidity", "citric acid", "residual sugar",
+                        "chlorides", "free sulfur dioxide", "total sulfur dioxide", "density", "pH", "sulphates",
+                        "alcohol"]
+        self.convert_data = ["fixed acidity", "volatile acidity", "citric acid", "residual sugar",
+                        "chlorides", "free sulfur dioxide", "total sulfur dioxide", "density", "pH", "sulphates",
+                        "alcohol"]
+        self.model_features = ["fixed acidity", "volatile acidity", "citric acid", "residual sugar",
+                        "chlorides", "free sulfur dioxide", "total sulfur dioxide", "density", "pH", "sulphates",
+                        "alcohol", "color_white"]
+
+        pass
+
+    def remove_outliers(self, X_dtf, y_dtf):
+        dropIndexes = X_dtf[X_dtf["free sulfur dioxide"] > 83.5].index
+        dropIndexes.append(X_dtf[X_dtf["chlorides"] > 0.31].index)
+        X_dtf.drop(dropIndexes, inplace=True)
+        y_dtf.drop(dropIndexes, inplace=True)
+
+        return X_dtf, y_dtf
+
+    def preprocess(self, X_dtf):
+        # Remplace color par la catégorie binaire color_white
+        dummy = pd.get_dummies(X_dtf["color"], prefix="color", drop_first=False)
+        X_dtf = pd.concat([X_dtf, dummy], axis=1)
+        X_dtf = X_dtf.drop("color", axis=1)
+
+        return X_dtf
 
     def train(self, X_train, y_train):
         """
@@ -59,20 +57,29 @@ class MyWineTester(WineTester):
                 the first column is the example ID.
                 the second column is the example label.
         """
+        # TODO: entrainer un modèle sur X_train & y_train
 
-        X_train, y_train = preprocess(X_train, y_train)
+        # Construit un DataFrame pour facilement manipuler les données
+        df = pd.DataFrame(X_train, columns=self.column_names)
+        df["id"] = df["id"].astype(int)
+        df[self.convert_data] = df[self.convert_data].astype(float)
+        df.set_index("id")
 
-        # Split dataset in training and testing subset
-        # X_train, X_test, y_train, y_test = train_test_split(X_train, y_train, test_size=0.3, random_state=0)
-        # Training
-        self.clf.fit(X_train, y_train)
+        y_train = pd.DataFrame(y_train, columns=["id", "quality"])
+        y_train.set_index('id')
 
-        # Scoring to evaluate hyperparameters, using cross validation and grid search :
-        # scores = cross_val_score(self.clf, X_train, y_train, cv=5)
-        # print(scores)
-        # print(sorted(self.clf.named_steps["gridsearchcv"].best_estimator_))
-        # print(self.clf.get_params())
-        # print(self.clf.score(X_test, y_test))
+        # Pre-processing
+        dtf, y_train = self.remove_outliers(df, y_train)
+        dtf = self.preprocess(dtf)
+
+        X_train = dtf[self.model_features].values
+        y_train = y_train["quality"].values
+
+        self.predictor = make_pipeline(StandardScaler(), RandomForestClassifier(n_estimators=300, criterion="entropy", bootstrap=True, n_jobs=-1, random_state=0))
+        #self.predictor = make_pipeline(StandardScaler(), svm.SVC(C=1.3, kernel="rbf", gamma=0.65))
+        self.predictor.fit(X_train, y_train)
+
+        #raise NotImplementedError()
 
     def predict(self, X_data):
         """
@@ -90,12 +97,24 @@ class MyWineTester(WineTester):
                 the first column is the example ID.
         :return: a 2D list of predictions with 2 columns: ID and prediction
         """
+        # TODO: make predictions on X_data and return them
 
-        X_data, _ = preprocess(X_data, [])
-        labels = []
+        # Construit un DataFrame pour facilement manipuler les données
+        df = pd.DataFrame(X_data, columns=self.column_names)
+        df["id"] = df["id"].astype(int)
+        df[self.convert_data] = df[self.convert_data].astype(float)
+        df.set_index("id")
 
-        preds = np.round(self.clf.predict(X_data).tolist())
-        for id, prediction in enumerate(preds):
-            labels.append([id, prediction])
-        return labels
+        # Pre-processing
+        dtf = self.preprocess(df)
 
+        dtf = dtf[self.model_features].values
+
+        predictions = self.predictor.predict(dtf)
+
+        # Mise en forme des résultats
+        results = []
+        for id, quality in enumerate(predictions):
+            results.append([id, quality])
+        return results
+        #raise NotImplementedError()
